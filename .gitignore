@@ -1,0 +1,8 @@
+venv/
+ex.py
+weather_code_predictor.joblib
+weather_models_alert_classifier.joblib
+weather_models_features.joblib
+weather_models_forecast_classifier.joblib
+weather_models_scaler.joblib
+weather_models_severity_regressor.joblib

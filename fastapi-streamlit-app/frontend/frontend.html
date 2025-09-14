@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AirGuard - Weather Prediction System</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <link rel="stylesheet" href="main.css" />
+  </head>
+  <body>
+    <div class="header">
+      <div class="logo">⚡ AirGuard Weather System</div>
+      <div class="time-display" id="currentTime">Loading...</div>
+    </div>
+
+    <div class="alert-banner" id="alertBanner"></div>
+
+    <div class="main-container">
+      <div class="map-section">
+        <div class="airport-count" id="airportCount">Loading airports...</div>
+
+        <div class="map-container">
+          <div class="loading-overlay" id="loadingOverlay">
+            <div class="loading-spinner"></div>
+            <div>Loading airports worldwide...</div>
+          </div>
+          <div id="map"></div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item">
+            <div class="legend-color" style="background: #ff4757"></div>
+            <span>Airports</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: #00ff88"></div>
+            <span>Selected</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: #00d4ff"></div>
+            <span>Hovered</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div class="status-panel">
+          <div class="panel-title" id="selectedAirport">Select an Airport</div>
+          <div id="airportInfo" style="display: none">
+            <div class="status-grid">
+              <div class="status-item">
+                <div class="status-value" id="temperature" style="color: #ffc107">--°C</div>
+                <div class="status-label">Temperature</div>
+              </div>
+              <div class="status-item">
+                <div class="status-value" id="humidity" style="color: #00ff88">--%</div>
+                <div class="status-label">Humidity</div>
+              </div>
+              <div class="status-item">
+                <div class="status-value" id="windSpeed" style="color: #ff6b7a">--</div>
+                <div class="status-label">Wind (km/h)</div>
+              </div>
+              <div class="status-item">
+                <div class="status-value" id="pressure" style="color: #00d4ff">----</div>
+                <div class="status-label">Pressure (hPa)</div>
+              </div>
+            </div>
+
+            <div class="risk-level" id="riskLevel">🔍 ANALYZING...</div>
+            <div class="last-updated" id="lastUpdated">Last updated: --</div>
+          </div>
+          <div id="selectPrompt" style="text-align: center; padding: 2rem; color: #ccc">
+            Click on any airport above to view weather conditions
+          </div>
+        </div>
+
+        <div class="forecast-panel">
+          <div class="panel-title">Forecast (Next 24h)</div>
+          <div id="forecastContainer">
+            <div class="loading-forecast">Loading forecast data...</div>
+          </div>
+
+          <div style="margin-top: 1rem">
+            <div class="confidence-text">
+              <span>Model Confidence:</span>
+              <span id="confidenceValue">--%</span>
+            </div>
+            <div class="confidence-bar">
+              <div class="confidence-fill" id="confidenceFill" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Leaflet JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+    <script>
+      // Update current time
+      function updateTime() {
+        const now = new Date();
+        document.getElementById("currentTime").textContent =
+          now.toLocaleDateString() + " " + now.toLocaleTimeString();
+      }
+
+      updateTime();
+      setInterval(updateTime, 1000);
+
+      // Initialize map
+      const map = L.map('map', {
+        center: [20, 0],
+        zoom: 2,
+        zoomControl: true,
+        scrollWheelZoom: true,
+        doubleClickZoom: false,
+        boxZoom: false,
+        touchZoom: true,
+        dragging: true,
+        minZoom: 2,
+        maxZoom: 18
+      });
+
+      // Add dark tile layer
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        maxZoom: 19
+      }).addTo(map);
+
+      let selectedMarker = null;
+      let selectedAirport = null;
+      const markers = {};
+      let airportData = [];
+
+      function createAirportIcon(isSelected = false) {
+        return L.divIcon({
+          className: isSelected ? 'airport-marker selected' : 'airport-marker',
+          html: '✈️',
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
+          popupAnchor: [0, -20]
+        });
+      }
+
+      // Airport data
+      function loadAirportData() {
+        return new Promise((resolve) => {
+          const majorAirports = [
+  // Normal conditions airports
+  { name: "Hartsfield-Jackson Atlanta", code: "ATL", country: "USA", lat: 33.6407, lng: -84.4277 },
+  { name: "Los Angeles International", code: "LAX", country: "USA", lat: 33.9425, lng: -118.4081 },
+  { name: "Dubai International", code: "DXB", country: "UAE", lat: 25.2532, lng: 55.3657 },
+  { name: "Tokyo Haneda", code: "HND", country: "Japan", lat: 35.5494, lng: 139.7798 },
+  { name: "London Heathrow", code: "LHR", country: "UK", lat: 51.4700, lng: -0.4543 },
+  { name: "Paris Charles de Gaulle", code: "CDG", country: "France", lat: 49.0097, lng: 2.5479 },
+  { name: "Amsterdam Schiphol", code: "AMS", country: "Netherlands", lat: 52.3086, lng: 4.7639 },
+  { name: "Frankfurt am Main", code: "FRA", country: "Germany", lat: 50.0379, lng: 8.5622 },
+  { name: "Istanbul Airport", code: "IST", country: "Turkey", lat: 41.2753, lng: 28.7519 },
+  { name: "Beijing Capital", code: "PEK", country: "China", lat: 40.0799, lng: 116.6031 },
+  { name: "Shanghai Pudong", code: "PVG", country: "China", lat: 31.1443, lng: 121.8083 },
+  { name: "Singapore Changi", code: "SIN", country: "Singapore", lat: 1.3644, lng: 103.9915 },
+  { name: "Sydney Kingsford Smith", code: "SYD", country: "Australia", lat: -33.9399, lng: 151.1753 },
+  { name: "Delhi Indira Gandhi", code: "DEL", country: "India", lat: 28.5562, lng: 77.1000 },
+  { name: "Mumbai Chhatrapati Shivaji", code: "BOM", country: "India", lat: 19.0896, lng: 72.8656 },
+  { name: "Bangalore Kempegowda", code: "BLR", country: "India", lat: 13.1986, lng: 77.7066 },
+  { name: "Hyderabad Rajiv Gandhi", code: "HYD", country: "India", lat: 17.2313, lng: 78.4298 },
+  { name: "Chennai International", code: "MAA", country: "India", lat: 12.9941, lng: 80.1709 },
+  { name: "Kolkata Netaji Subhas Chandra Bose", code: "CCU", country: "India", lat: 22.6548, lng: 88.4467 },
+  { name: "Ahmedabad Sardar Vallabhbhai Patel", code: "AMD", country: "India", lat: 23.0726, lng: 72.6344 },
+  { name: "Pune International", code: "PNQ", country: "India", lat: 18.5821, lng: 73.9197 },
+  { name: "Sao Paulo Guarulhos", code: "GRU", country: "Brazil", lat: -23.4356, lng: -46.4731 },
+  { name: "Mexico City International", code: "MEX", country: "Mexico", lat: 19.4363, lng: -99.0721 },
+  { name: "Toronto Pearson", code: "YYZ", country: "Canada", lat: 43.6777, lng: -79.6248 },
+  { name: "Moscow Domodedovo", code: "DME", country: "Russia", lat: 55.4086, lng: 37.9061 },
+  { name: "Cairo International", code: "CAI", country: "Egypt", lat: 30.1219, lng: 31.4056 },
+  { name: "Johannesburg OR Tambo", code: "JNB", country: "South Africa", lat: -26.1367, lng: 28.2411 },
+  { name: "Lagos Murtala Muhammed", code: "LOS", country: "Nigeria", lat: 6.5774, lng: 3.3210 },
+  
+  // EXTREME WEATHER CONDITIONS - These will trigger alerts
+  
+  // HIGH WIND ALERT (wind_speed > 25)
+  { name: "Chicago O'Hare Storm Zone", code: "ORD", country: "USA", lat: 41.9786, lng: -87.9048 },
+  { name: "Wellington Windy Airport", code: "WLG", country: "New Zealand", lat: -41.3272, lng: 174.8055 },
+  { name: "Patagonia High Wind Base", code: "EZE", country: "Argentina", lat: -34.8222, lng: -58.5358 },
+  
+  // HEAVY PRECIPITATION ALERT (precip_prob > 80)
+  { name: "Seattle Storm Center", code: "SEA", country: "USA", lat: 47.4502, lng: -122.3088 },
+  { name: "Monsoon Mumbai Override", code: "BOM2", country: "India", lat: 19.0896, lng: 72.8656 },
+  { name: "Tropical Storm Base", code: "MIA", country: "USA", lat: 25.7959, lng: -80.2870 },
+  
+  // LOW PRESSURE ALERT (pressure < 1005)
+  { name: "Hurricane Tracking Station", code: "KEY", country: "USA", lat: 24.5557, lng: -81.7594 },
+  { name: "Cyclone Watch Darwin", code: "DRW", country: "Australia", lat: -12.4074, lng: 130.8756 },
+  { name: "Typhoon Alert Okinawa", code: "OKA", country: "Japan", lat: 26.1958, lng: 127.6458 },
+  
+  // EXTREME TEMPERATURE ALERT (temp > 35 or temp < 5)
+  { name: "Desert Heat Phoenix", code: "PHX", country: "USA", lat: 33.4342, lng: -112.0116 },
+  { name: "Arctic Cold Fairbanks", code: "FAI", country: "USA", lat: 64.8151, lng: -147.8761 },
+  { name: "Sahara Heat Station", code: "ASW", country: "Egypt", lat: 24.0934, lng: 32.8998 },
+  { name: "Siberian Freeze Base", code: "YKS", country: "Russia", lat: 62.0939, lng: 129.7711 },
+  
+  // MULTIPLE EXTREME CONDITIONS
+  { name: "Perfect Storm Atlantic", code: "BGI", country: "Barbados", lat: 13.0765, lng: -59.4927 },
+  { name: "Tornado Alley Center", code: "OKC", country: "USA", lat: 35.3931, lng: -97.6007 },
+  { name: "Himalayan Weather Station", code: "KTM", country: "Nepal", lat: 27.6966, lng: 85.3591 }
+];
+          
+          setTimeout(() => resolve(majorAirports), 1000);
+        });
+      }
+
+      // Load and display airports
+      async function initializeAirports() {
+        try {
+          airportData = await loadAirportData();
+          
+          document.getElementById('airportCount').textContent = `${airportData.length} airports loaded`;
+          
+          airportData.forEach((airport, index) => {
+            const marker = L.marker([airport.lat, airport.lng], {
+              icon: createAirportIcon(false)
+            }).addTo(map);
+
+            airport.id = `airport_${index}_${airport.code}`;
+
+            marker.bindPopup(`
+              <div style="text-align: center;">
+                <strong>${airport.name}</strong><br>
+                <span style="color: #00d4ff;">${airport.code} - ${airport.country}</span><br>
+                <small>Lat: ${airport.lat.toFixed(4)}, Lng: ${airport.lng.toFixed(4)}</small>
+              </div>
+            `);
+
+            marker.on('click', function(e) {
+              const clickedLat = e.latlng.lat;
+              const clickedLng = e.latlng.lng;
+              
+              if (selectedMarker && selectedMarker !== marker) {
+                selectedMarker.setIcon(createAirportIcon(false));
+              }
+
+              selectedMarker = marker;
+              selectedAirport = airport.id;
+              marker.setIcon(createAirportIcon(true));
+
+              const selectedAirportData = {
+                id: airport.id,
+                name: airport.name,
+                code: airport.code,
+                country: airport.country,
+                lat: clickedLat,
+                lng: clickedLng
+              };
+
+              updateAirportWeather(selectedAirportData);
+
+              setTimeout(() => {
+                marker.closePopup();
+              }, 1000);
+
+              console.log('Airport selected:', {
+                name: airport.name,
+                code: airport.code,
+                realtime_lat: clickedLat,
+                realtime_lng: clickedLng
+              });
+            });
+
+            markers[airport.id] = marker;
+          });
+
+          document.getElementById('loadingOverlay').style.display = 'none';
+          
+          console.log(`${airportData.length} airports loaded worldwide`);
+          
+        } catch (error) {
+          console.error('Error loading airports:', error);
+          document.getElementById('airportCount').textContent = 'Error loading airports';
+          document.getElementById('loadingOverlay').innerHTML = '<div>Error loading airports. Please refresh.</div>';
+        }
+      }
+
+      function updateAirportWeather(airport) {
+        // Update panel title
+        document.getElementById("selectedAirport").textContent = `${airport.name} (${airport.code})`;
+
+        // Show airport info, hide prompt
+        document.getElementById("airportInfo").style.display = "block";
+        document.getElementById("selectPrompt").style.display = "none";
+
+        // Set loading states
+        document.getElementById("temperature").textContent = "--°C";
+        document.getElementById("humidity").textContent = "--%";
+        document.getElementById("windSpeed").textContent = "--";
+        document.getElementById("pressure").textContent = "----";
+        document.getElementById("confidenceValue").textContent = "--%";
+        document.getElementById("confidenceFill").style.width = "0%";
+        document.getElementById("lastUpdated").textContent = "Last updated: Loading...";
+
+        const riskElement = document.getElementById("riskLevel");
+        riskElement.className = "risk-level";
+        riskElement.innerHTML = "🔍 LOADING...";
+
+        // Set loading states for forecast and alerts
+        document.getElementById("forecastContainer").innerHTML = '<div class="loading-forecast">Loading forecast data...</div>';
+        document.getElementById("alertsContainer").innerHTML = '<div class="loading-forecast">Loading alert data...</div>';
+
+        const apiUrl = `http://127.0.0.1:8000/thunderstrome?lat=${airport.lat}&lng=${airport.lng}&airport=${airport.code}&country=${airport.country}`;
+        
+        console.log('Sending request to API:', apiUrl);
+        
+        fetch(apiUrl)
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+          })
+          .then((data) => {
+            console.log('Weather data received:', data);
+            
+            // Update current weather
+            const forecast = data.forecast;
+            document.getElementById("temperature").textContent = `${forecast.temperature_2m.toFixed(1)}°C`;
+            document.getElementById("humidity").textContent = `${forecast.relative_humidity_2m}%`;
+            document.getElementById("windSpeed").textContent = forecast.wind_speed_10m.toFixed(0);
+            document.getElementById("pressure").textContent = forecast.pressure_msl.toFixed(1);
+
+            // Update risk assessment
+            const predictedCode = data.predicted_next3h_max_weathercode;
+            let riskClass = "risk-green";
+            let riskText = "✅ LOW RISK";
+            if (predictedCode > 50) {
+              riskClass = "risk-red";
+              riskText = "🚨 HIGH RISK";
+            } else if (predictedCode > 10) {
+              riskClass = "risk-yellow";
+              riskText = "⚠️ MODERATE RISK";
+            }
+
+            riskElement.className = `risk-level ${riskClass}`;
+            riskElement.innerHTML = `${riskText}<br><small>Thunderstorm Score: ${predictedCode.toFixed(2)}</small>`;
+
+            // Update model confidence
+            const confidence = data.model_confidence || 75;
+            document.getElementById("confidenceValue").textContent = `${confidence}%`;
+            document.getElementById("confidenceFill").style.width = `${confidence}%`;
+
+            // Update last updated time
+            const lastUpdated = new Date(data.last_updated || Date.now()).toLocaleString();
+            document.getElementById("lastUpdated").textContent = `Last updated: ${lastUpdated}`;
+
+            // Update 24-hour forecast
+            updateForecast(data.forecast_24h);
+
+            // Update active alerts
+            updateAlerts(data.active_alerts);
+
+            // Update alert banner
+            updateAlertBanner(data.active_alerts, airport.name);
+
+            console.log(`Weather data processed for ${airport.name}`);
+          })
+          .catch((error) => {
+            console.error("Error fetching weather data:", error);
+            riskElement.innerHTML = `❌ ERROR: ${error.message}`;
+            
+            // Show error in forecast and alerts
+            document.getElementById("forecastContainer").innerHTML = 
+              '<div class="error-message">Unable to load forecast data</div>';
+            document.getElementById("alertsContainer").innerHTML = 
+              '<div class="error-message">Unable to load alert data</div>';
+          });
+      }
+
+      function updateForecast(forecastData) {
+        const container = document.getElementById("forecastContainer");
+        
+        if (!forecastData || forecastData.length === 0) {
+          container.innerHTML = '<div class="error-message">No forecast data available</div>';
+          return;
+        }
+
+        let html = '';
+        forecastData.forEach(item => {
+          html += `
+            <div class="forecast-item">
+              <span class="forecast-time">${item.time}</span>
+              <span class="forecast-condition">${item.condition}</span>
+              <span class="forecast-probability">${item.probability}%</span>
+            </div>
+          `;
+        });
+
+        container.innerHTML = html;
+      }
+
+      function updateAlerts(alertData) {
+        const container = document.getElementById("alertsContainer");
+        
+        if (!alertData || alertData.length === 0) {
+          container.innerHTML = '<div class="loading-forecast">No active alerts</div>';
+          return;
+        }
+
+        let html = '';
+        alertData.forEach(alert => {
+          html += `
+            <div class="alert-item">
+              <div class="alert-time">${alert.time}</div>
+              <div class="alert-text">${alert.text}</div>
+            </div>
+          `;
+        });
+
+        container.innerHTML = html;
+      }
+
+      function updateAlertBanner(alerts, airportName) {
+        const alertBanner = document.getElementById("alertBanner");
+        
+        // Find highest priority alert
+        let highPriorityAlert = null;
+        if (alerts && alerts.length > 0) {
+          highPriorityAlert = alerts.find(alert => 
+            alert.time.includes("HIGH PRIORITY")
+          ) || alerts[0];
+        }
+
+        if (highPriorityAlert && highPriorityAlert.time.includes("HIGH PRIORITY")) {
+          alertBanner.textContent = `⚡ SEVERE WEATHER ALERT: ${airportName} - ${highPriorityAlert.text}`;
+          alertBanner.classList.add("active");
+        } else if (highPriorityAlert && highPriorityAlert.time.includes("MODERATE")) {
+          alertBanner.textContent = `⚠️ WEATHER ADVISORY: ${airportName} - ${highPriorityAlert.text}`;
+          alertBanner.classList.add("active");
+        } else {
+          alertBanner.classList.remove("active");
+        }
+      }
+
+      // Initialize the application
+      initializeAirports();
+
+      console.log("AirGuard Weather System initialized with dynamic forecasts and alerts");
+    </script>
+  </body>
+</html>
