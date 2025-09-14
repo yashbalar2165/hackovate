@@ -81,11 +81,11 @@ export default function WeatherDashboard() {
 
       <main className="container mx-auto p-4 space-y-6">
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
             <TabsTrigger value="layers">Weather Layers</TabsTrigger>
-            <TabsTrigger value="radar">Radar</TabsTrigger>
+            {/* <TabsTrigger value="radar">Radar</TabsTrigger> */}
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
